@@ -1,8 +1,3 @@
-1. Sim, os arquivos `cfb.jl` e `de.jl` são dependentes para gerar os arquivos resultados da função de evolução diferencial. O arquivo `cfb.jl` contém a implementação das funções necessárias para calcular as métricas e exportar os resultados, enquanto o arquivo `de.jl` faz a interface com a linha de comando e executa a função principal de evolução diferencial utilizando as funções definidas em `cfb.jl`.
-
-2. Considerando que você deseja apenas chamar as funções que geram os arquivos para o método de evolução diferencial, aqui está o código reescrito para `cfb.jl`:
-
-### Arquivo `cfb.jl`
 
 ```julia
 module CFB
