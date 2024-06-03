@@ -1,5 +1,4 @@
 
-```julia
 module CFB
 
 using Graphs: Graph, SimpleGraph, nv, ne, adjacency_matrix
@@ -256,4 +255,4 @@ function export_de_results(g::Graph, valid_tuples::Matrix{Integer}, globals::Vec
 end
 
 end
-```
+
