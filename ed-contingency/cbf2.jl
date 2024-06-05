@@ -256,8 +256,7 @@ end
 
 end
 
-# FUNÇAO FLUXO DE POTENCIA:
-
+# Calculando power flow
 function calc_power_flow(g::Graph, voltages::Vector{Complex{Float64}}, impedances::Vector{Complex{Float64}})
     m = ne(g)
     power_flows = zeros(Complex{Float64}, m)
@@ -273,73 +272,5 @@ function calc_power_flow(g::Graph, voltages::Vector{Complex{Float64}}, impedance
     return power_flows
 end
 
-#Integrando o cálculo de fluxo de potência no algoritmo de evolução diferencial(modificaçao necessaria na função de_iter!
-
-function de_iter!(g::Graph, pop_indices::Matrix{Integer}, ref_bets::Vector{Float64}, crossover_rate::Float64, beta_min::Float64, beta_max::Float64, impedances::Vector{Complex{Float64}}, voltages::Vector{Complex{Float64}}, ultima=false::Bool)
-    m = ne(g)
-    edgs = edges_k_tuples(g, edge_indices_k_tuples(m, 1))
-    e = edges_k_tuples(g, pop_indices)
-    n_pop, k = size(pop_indices)
-    v = check_valid_removals(g, e)
-    while sum(v) == 0
-        pop_indices = sample_initial_pop(m, n_pop, k)
-        e = edges_k_tuples(g, pop_indices)
-        v = check_valid_removals(g, e)
-    end
-    ve = filter_valid_removals(e, v)
-    ive = filter_invalid_removals(e, v)
-    bets = betweenness_from_removals(g, ve)
-    deltas = betweenness_deltas(bets, ref_bets)
-    costs = de_cost_function(deltas)
-
-    # Calcular fluxo de potência
-    power_flows = calc_power_flow(g, voltages, impedances)
-
-    p = sortperm(-costs)
-    costs = costs[p]
-    pop_indices = pop_indices[p, :]
-
-    if !ultima
-        best_edg = pop_indices[1, :]
-        pop_indices_mut = de_mutation(m, k, size(pop_indices, 1), pop_indices, beta_min, beta_max)
-        pop_indices_cross = de_crossover(size(pop_indices, 1), pop_indices, pop_indices_mut, crossover_rate)
-        pop_indices = pop_indices_cross
-        pop_indices[1, :] = best_edg
-        return nothing, nothing, nothing, nothing
-    else
-        global_norms = sum(abs.(deltas), dims=1)
-        deltas_by_tuple = sum(abs.(deltas), dims=2)
-        deltas_by_edge = zeros(Float64, m)
-        d = Dict([0, 0] => 0)
-        for i in 1:m
-            d[edges(g)[i]] = i
-        end
-        for i in 1:size(ve, 1)
-            for j in 1:k
-                edg = ve[i, 2*j-1:2*j]
-                idx = d[edg]
-                deltas_by_edge[idx] += deltas_by_tuple[i]
-            end
-        end
-        return ve, ive, DataFrame(V=1:length(global_norms), DELTA=global_norms), DataFrame(DELTA=deltas_by_edge), vec(deltas_by_tuple), power_flows
-    end
-end
-
-#  Atualizando a função principal cfb_de incluir novos parametros de impedncia e tensao
-function cfb_de(g::Graph, k::Integer, pop_size::Integer, crossover_rate::Float64, beta_min::Float64, beta_max::Float64, iter_num::Integer, voltages::Vector{Complex{Float64}}, impedances::Vector{Complex{Float64}}, arquivo_saida::String)
-    ref_cfb = current_flow_betweenness(g)
-    m = ne(g)
-    edge_index_pop = sample_initial_pop(m, pop_size, k)
-    for i in 1:iter_num-1
-        de_iter!(g, edge_index_pop, ref_cfb, crossover_rate, beta_min, beta_max, impedances, voltages)
-    end
-    ve, ive, global_norms_df, edge_norms_df, local_norms, power_flows = de_iter!(g, edge_index_pop, ref_cfb, crossover_rate, beta_min, beta_max, impedances, voltages, true)
-    global_norms_vector = Vector{Float64}(global_norms_df[:, "DELTA"])
-    edge_norms_vector = Vector{Float64}(edge_norms_df[:, "DELTA"])
-    export_de_results(g, ve, global_norms_vector, edge_norms_vector, local_norms, ive, k, arquivo_saida, "de")
-
-    # Exportar fluxos de potência
-    CSV.write("power_flows.csv", Tables.table(power_flows), writeheader=false)
-end
-
+# Modificação na função current flow betweeness - ajustar a função current_flow_betweenness para levar em consideração os pesos baseados nos fluxos de potência.
 
