@@ -1,4 +1,3 @@
-
 module CFB
 
 using Graphs: Graph, SimpleGraph, nv, ne, adjacency_matrix
@@ -42,7 +41,24 @@ function read_edgelist(s::String)
     return g
 end
 
-function current_flow_betweenness(g::Graph)
+# ADICIONADO: Função para calcular fluxos de potência
+function calc_power_flow(g::Graph, voltages::Vector{Complex{Float64}}, impedances::Vector{Complex{Float64}})
+    m = ne(g)
+    power_flows = zeros(Float64, m)  # Modificado para retornar magnitudes reais
+    edges_list = collect(edges(g))
+
+    for (i, edge) in enumerate(edges_list)
+        src_node = src(edge)
+        dst_node = dst(edge)
+        voltage_diff = voltages[src_node] - voltages[dst_node]
+        power_flows[i] = abs(voltage_diff / impedances[i])  # Usando a magnitude do fluxo
+    end
+
+    return power_flows
+end
+
+# MODIFICADO: Função para calcular betweenness centrality com pesos
+function current_flow_betweenness(g::Graph, weights::Vector{Float64})
     n = nv(g)
     m = ne(g)
     betweenness = zeros(Float64, n)
@@ -59,8 +75,8 @@ function current_flow_betweenness(g::Graph)
         s = e[1]
         d = e[2]
         for i in 1:n
-            betweenness[s] += (i - pos[i]) * F[j, i]
-            betweenness[d] += (n + 1 - i - pos[i]) * F[j, i]
+            betweenness[s] += (i - pos[i]) * F[j, i] * weights[j]
+            betweenness[d] += (n + 1 - i - pos[i]) * F[j, i] * weights[j]
         end
     end
     norm_vec = 1:n
@@ -135,13 +151,14 @@ function filter_invalid_removals(tuples::Matrix{Integer}, valids::Vector{Bool})
     return edge_tuples_matrix
 end
 
-function betweenness_from_removals(g::Graph, tuples::Matrix{Integer})
+# MODIFICADO: Função para calcular betweenness a partir de removals com pesos
+function betweenness_from_removals(g::Graph, tuples::Matrix{Integer}, weights::Vector{Float64})
     n = nv(g)
     n_subsets, _ = size(tuples)
     betweenness = zeros(Float64, n_subsets, n)
     for i in 1:n_subsets
         g_edit = edit_graph(g, tuples[i, :])
-        betweenness[i, :] = current_flow_betweenness(g_edit)
+        betweenness[i, :] = current_flow_betweenness(g_edit, weights)
     end
     return betweenness
 end
@@ -179,7 +196,8 @@ function de_crossover(pop_size::Integer, pop_indices::Matrix{Integer}, pop_indic
     return pop_indices
 end
 
-function de_iter!(g::Graph, pop_indices::Matrix{Integer}, ref_bets::Vector{Float64}, crossover_rate::Float64, beta_min::Float64, beta_max::Float64, ultima=false::Bool)
+# MODIFICADO: Adição de weights na função de_iter!
+function de_iter!(g::Graph, pop_indices::Matrix{Integer}, ref_bets::Vector{Float64}, crossover_rate::Float64, beta_min::Float64, beta_max::Float64, weights::Vector{Float64}, ultima=false::Bool)
     m = ne(g)
     edgs = edges_k_tuples(g, edge_indices_k_tuples(m, 1))
     e = edges_k_tuples(g, pop_indices)
@@ -192,7 +210,7 @@ function de_iter!(g::Graph, pop_indices::Matrix{Integer}, ref_bets::Vector{Float
     end
     ve = filter_valid_removals(e, v)
     ive = filter_invalid_removals(e, v)
-    bets = betweenness_from_removals(g, ve)
+    bets = betweenness_from_removals(g, ve, weights)
     deltas = betweenness_deltas(bets, ref_bets)
     costs = de_cost_function(deltas)
     p = sortperm(-costs)
@@ -200,9 +218,7 @@ function de_iter!(g::Graph, pop_indices::Matrix{Integer}, ref_bets::Vector{Float
     pop_indices = pop_indices[p, :]
     if !ultima
         best_edg = pop_indices[1, :]
-        pop_indices_mut = de_mutation(m, k, size
-
-(pop_indices, 1), pop_indices, beta_min, beta_max)
+        pop_indices_mut = de_mutation(m, k, size(pop_indices, 1), pop_indices, beta_min, beta_max)
         pop_indices_cross = de_crossover(size(pop_indices, 1), pop_indices, pop_indices_mut, crossover_rate)
         pop_indices = pop_indices_cross
         pop_indices[1, :] = best_edg
@@ -226,14 +242,15 @@ function de_iter!(g::Graph, pop_indices::Matrix{Integer}, ref_bets::Vector{Float
     end
 end
 
-function cfb_de(g::Graph, k::Integer, pop_size::Integer, crossover_rate::Float64, beta_min::Float64, beta_max::Float64, iter_num::Integer = 10, arquivo_saida::String = "result")
-    ref_cfb = current_flow_betweenness(g)
+# MODIFICADO: Adição de weights na função cfb_de
+function cfb_de(g::Graph, k::Integer, pop_size::Integer, crossover_rate::Float64, beta_min::Float64, beta_max::Float64, iter_num::Integer, weights::Vector{Float64}, arquivo_saida::String)
+    ref_cfb = current_flow_betweenness(g, weights)
     m = ne(g)
     edge_index_pop = sample_initial_pop(m, pop_size, k)
     for i in 1:iter_num-1
-        de_iter!(g, edge_index_pop, ref_cfb, crossover_rate, beta_min, beta_max)
+        de_iter!(g, edge_index_pop, ref_cfb, crossover_rate, beta_min, beta_max, weights)
     end
-    ve, ive, global_norms_df, edge_norms_df, local_norms = de_iter!(g, edge_index_pop, ref_cfb, crossover_rate, beta_min, beta_max, true)
+    ve, ive, global_norms_df, edge_norms_df, local_norms = de_iter!(g, edge_index_pop, ref_cfb, crossover_rate, beta_min, beta_max, weights, true)
     global_norms_vector = Vector{Float64}(global_norms_df[:, "DELTA"])
     edge_norms_vector = Vector{Float64}(edge_norms_df[:, "DELTA"])
     export_de_results(g, ve, global_norms_vector, edge_norms_vector, local_norms, ive, k, arquivo_saida, "de")
@@ -255,22 +272,3 @@ function export_de_results(g::Graph, valid_tuples::Matrix{Integer}, globals::Vec
 end
 
 end
-
-# Calculando power flow
-function calc_power_flow(g::Graph, voltages::Vector{Complex{Float64}}, impedances::Vector{Complex{Float64}})
-    m = ne(g)
-    power_flows = zeros(Complex{Float64}, m)
-    edges_list = collect(edges(g))
-
-    for (i, edge) in enumerate(edges_list)
-        src_node = src(edge)
-        dst_node = dst(edge)
-        voltage_diff = voltages[src_node] - voltages[dst_node]
-        power_flows[i] = voltage_diff / impedances[i]
-    end
-
-    return power_flows
-end
-
-# Modificação na função current flow betweeness - ajustar a função current_flow_betweenness para levar em consideração os pesos baseados nos fluxos de potência.
-
