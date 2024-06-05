@@ -1,4 +1,4 @@
-using Graphs, ArgParse
+using Graphs, ArgParse, BenchmarkTools
 
 function parse_commandline()
     s = ArgParseSettings()
@@ -15,6 +15,14 @@ function parse_commandline()
             help = "Valor máximo do parâmetro de mutação"
             arg_type = Float64
             default = 0.8
+        "--voltages"
+            help = "Arquivo com as tensões dos nós"
+            arg_type = String
+            required = true
+        "--impedances"
+            help = "Arquivo com as impedâncias das arestas"
+            arg_type = String
+            required = true
         "grafo"
             help = "Arquivo com o grafo em lista de arestas"
             arg_type = String
@@ -49,35 +57,47 @@ function validate_args(args)
     if !isfile(args["grafo"])
         error("O arquivo especificado não existe.")
     end
-end
-
-function main()
-    args = parse_commandline()
-    validate_args(args)
-    
-    for (arg, val) in args
-        println("$arg  =>  $val")
+    if !isfile(args["voltages"])
+        error("O arquivo de tensões especificado não existe.")
     end
-
-    ARQ = args["grafo"]
-    K = args["k"]
-    iter_num = args["iter_num"]
-    beta_min = args["beta_min"]
-    beta_max = args["beta_max"]
-    pop = args["pop"]
-    crossover = args["crossover"]
-
-    include("cfb.jl")
-    using Main.CFB
-
-    NOME = string(split(ARQ, ".")[1])
-    g = read_edgelist(ARQ)
-    
-    try
-        cfb_de(g, K, pop, crossover, beta_min, beta_max, iter_num, NOME)
-    catch e
-        println("Erro durante a execução do algoritmo: $e")
+    if !isfile(args["impedances"])
+        error("O arquivo de impedâncias especificado não existe.")
     end
 end
 
-main()
+function load_complex_vector(filename::String)
+    data = readdlm(filename, ',')
+    return Complex{Float64}[Complex(d[1], d[2]) for d in eachrow(data)]
+end
+
+# Echo das entradas
+args = parse_commandline()
+validate_args(args)
+for (arg, val) in args
+    println("$arg  =>  $val")
+end
+
+ARQ = args["grafo"]
+K = args["k"]
+iter_num = args["iter_num"]
+beta_min = args["beta_min"]
+beta_max = args["beta_max"]
+pop = args["pop"]
+crossover = args["crossover"]
+voltages_file = args["voltages"]
+impedances_file = args["impedances"]
+
+include("cfb.jl")
+using Main.CFB
+
+NOME = string(split(ARQ, ".")[1])
+g = read_edgelist(ARQ)
+
+# Carregar tensões e impedâncias
+voltages = load_complex_vector(voltages_file)
+impedances = load_complex_vector(impedances_file)
+
+# Calcular fluxos de potência
+power_flows = calc_power_flow(g, voltages, impedances)
+
+cfb_de(g, K, pop, crossover, beta_min, beta_max, iter_num, power_flows, NOME)
